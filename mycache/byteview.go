@@ -11,6 +11,7 @@ func (bv ByteView) Len() int {
 	return len(bv.bytes)
 }
 
+// 克隆byte
 func (bv ByteView) ByteSlice() []byte {
 	return cloneBytes(bv.bytes)
 }

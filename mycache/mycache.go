@@ -28,6 +28,7 @@ type Group struct {
 	name   string
 	getter Getter
 	mcache mainCache
+	peers  PeerPicker // 选择远程节点
 }
 
 var (
@@ -74,10 +75,42 @@ func (g *Group) Get(key string) (ByteView, error) {
 	return g.Load(key)
 }
 
+// 注入接口
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		panic("Register PeerPicker More Than Once")
+	}
+
+	g.peers = peers
+}
+
 func (g *Group) Load(key string) (value ByteView, err error) {
+	if g.peers != nil {
+		// 首先选取哪一个远程节点
+		if peer, ok := g.peers.PickPeer(key); ok {
+			// 从远程节点获取cache
+			if value, err = g.GetFromPeer(peer, key); err == nil {
+				return value, nil
+			}
+			log.Println("[MyCache] Failed to get from peer", err)
+		}
+	}
+
 	return g.GetLocally(key)
 }
 
+// 从远程节点中获取cache
+func (g *Group) GetFromPeer(peer PeerGetter, key string) (ByteView, error) {
+	bytes, err := peer.Get(g.name, key)
+
+	if err != nil {
+		return ByteView{}, err
+	}
+
+	return ByteView{bytes: bytes}, nil
+}
+
+// 本地获取节点 例如本地数据库
 func (g *Group) GetLocally(key string) (ByteView, error) {
 	bytes, err := g.getter.Get(key) // 调用接口Get方法
 
@@ -92,6 +125,7 @@ func (g *Group) GetLocally(key string) (ByteView, error) {
 	return cv, nil
 }
 
+// 添加到本地cache中
 func (g *Group) populateCache(key string, bytes ByteView) {
 	g.mcache.Add(key, bytes)
 }
