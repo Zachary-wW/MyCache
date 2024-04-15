@@ -5,10 +5,13 @@ import (
 	"io"
 	"log"
 	"mycache/consistenthash"
+	pb "mycache/mycachepb"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -71,11 +74,20 @@ func (hp *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// 使用protobuf包装
+	body, err := proto.Marshal(&pb.Response{Value: cv.ByteSlice()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	// 一切没问题
 	// application/octet-stream表示所有其他情况的默认值
 	// 一种未知的文件类型应当使用此类型
 	w.Header().Set("Content-Tye", "application/octet-stream")
-	w.Write(cv.ByteSlice())
+	// w.Write(cv.ByteSlice())
+	w.Write(body)
 }
 
 // 实例化一致性hash 添加节点 为每个节点创建一个httpGetter（client方法）
@@ -107,31 +119,37 @@ func (hp *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
 
 // ----------------------http client---------------------------
 
-func (hg *httpGetter) Get(group string, key string) ([]byte, error) {
+// func (hg *httpGetter) Get(group string, key string) ([]byte, error) {
+func (hg *httpGetter) Get(in *pb.Request, out *pb.Response) error {
 	info := fmt.Sprintf(
 		"%v%v/%v", // %v按原本值输出
 		hg.baseURL,
-		url.QueryEscape(group), // QueryEscape 会对字符串进行转义处理，以便将其安全地放入 URL 查询中
-		url.QueryEscape(key),
+		url.QueryEscape(in.GetGroup()), // QueryEscape 会对字符串进行转义处理，以便将其安全地放入 URL 查询中
+		url.QueryEscape(in.GetKey()),
 	)
 	// Get方法
 	res, err := http.Get(info)
 	// 有错误
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	defer res.Body.Close()
 	// 不是200
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("[ERROR] Server returned: %v", res.Status)
+		return fmt.Errorf("[ERROR] Server returned: %v", res.Status)
 	}
 	// ok了 读取数据
 	bytes, err := io.ReadAll(res.Body) // read until an error or EOF and returns the data it read
 	if err != nil {
-		return nil, fmt.Errorf("[ERROR] Reading response body: %v", err)
+		return fmt.Errorf("[ERROR] Reading response body: %v", err)
 	}
-	return bytes, nil
+	// Decode
+	if err = proto.Unmarshal(bytes, out); err != nil {
+		return fmt.Errorf("decoding response body: %v", err)
+	}
+
+	return nil
 }
 
 // var _ PeerGetter = (*httpGetter)(nil)
