@@ -16,7 +16,7 @@ func (mc *mainCache) Add(key string, value ByteView) {
 	defer mc.mu.Unlock()
 
 	if mc.lru == nil {
-		mc.lru = lru.New(mc.cacheBytes, nil)
+		mc.lru = lru.New(mc.cacheBytes, nil, 1)
 	}
 	mc.lru.Add(key, value)
 }

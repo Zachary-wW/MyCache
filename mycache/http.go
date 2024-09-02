@@ -49,7 +49,7 @@ func (hp *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		panic("HTTPPool serving unexpected path: " + r.URL.Path)
 	}
 	// 打印方法和路径
-	hp.Log("%s %s", r.Method, r.URL.Path)
+	hp.Log("(In ServeHTTP) %s %s", r.Method, r.URL.Path)
 	// <basePath>/<Group>/<key>
 	parts := strings.SplitN(r.URL.Path[len(hp.basePath):], "/", 2)
 	// 不匹配上述形式
