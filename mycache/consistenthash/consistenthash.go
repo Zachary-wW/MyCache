@@ -3,7 +3,7 @@
 // 一致性hash将节点常用的标识，例如节点名称、IP等计算hash值，映射到2^32的环中
 // 同样的，计算key的hash值，进行相同的映射，这样一来，从key出发顺时针寻找的第一个节点就是需要访问的节点
 
-// 此时，由出现一个问题：数据倾斜的问题
+// 此时，出现一个问题：数据倾斜的问题
 // 数据倾斜就是说：因为映射的空间可以想象成一个环，那么如果节点的hash值都在右上角聚集，这就会导致分布在左下角的key每次
 // 访问的都是右上角第一个节点，造成负载不均衡
 // Solution: 使用虚拟节点，然后将真实节点和虚拟节点之间使用一个map进行维护
@@ -46,7 +46,7 @@ func New(replicas int, fn Hash) *ConsistentHash {
 func (ch *ConsistentHash) Add(nodes ...string) {
 	for _, node := range nodes {
 		for i := 0; i < ch.replicas; i++ {
-			hash := int(ch.hashfn([]byte(strconv.Itoa(i) + node)))
+			hash := int(ch.hashfn([]byte(strconv.Itoa(i) + node))) // 将基数为10的数转换成字符串形式
 			ch.ring = append(ch.ring, hash)
 			ch.dummyToreal[hash] = node
 		}
@@ -54,13 +54,12 @@ func (ch *ConsistentHash) Add(nodes ...string) {
 	sort.Ints(ch.ring)
 }
 
-// 获得真实节点
 func (ch *ConsistentHash) Get(key string) string {
 	// 环是空的
 	if len(ch.ring) == 0 {
 		return ""
 	}
-	// 不是空的 先获取hash值
+	// 不是空的 先获取key的hash值
 	hash := int(ch.hashfn([]byte(key)))
 	// 使用binary search 因为ring有序
 	// 找到第一个大于key的node

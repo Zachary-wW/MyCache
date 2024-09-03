@@ -1,5 +1,7 @@
 package mycache
 
+// 负责与外部交互，控制缓存存储和获取的主流程
+
 import (
 	"fmt"
 	"log"
@@ -28,9 +30,9 @@ func (f GetterFunc) Get(key string) ([]byte, error) {
 
 type Group struct {
 	name   string
-	getter Getter
-	mcache mainCache
-	peers  PeerPicker // 选择远程节点
+	getter Getter     // 本地数据源获取方法
+	mcache mainCache  // 并发LRU-K
+	peers  PeerPicker // 远程节点资源获取
 	loader *singleflight.Group
 }
 
@@ -89,7 +91,7 @@ func (g *Group) RegisterPeers(peers PeerPicker) {
 }
 
 func (g *Group) Load(key string) (value ByteView, err error) {
-	// 使用singleflight
+	// 使用singleflight 针对多个请求相同的key 无论是远程读取还是本地获取都只执行一次
 	viewi, err := g.loader.Do(key, func() (interface{}, error) {
 		if g.peers != nil {
 			// 首先选取哪一个远程节点
@@ -133,15 +135,15 @@ func (g *Group) GetFromPeer(peer PeerGetter, key string) (ByteView, error) {
 
 // 本地获取节点 例如本地数据库
 func (g *Group) GetLocally(key string) (ByteView, error) {
-	bytes, err := g.getter.Get(key) // 调用接口Get方法
+	bytes, err := g.getter.Get(key)
 
 	if err != nil {
 		return ByteView{}, err
 	}
 
 	cv := ByteView{bytes: cloneBytes(bytes)}
-	g.populateCache(key, cv)
-	log.Println("[MyCache:] Get locally and populate!")
+	g.populateCache(key, cv) // 缓存
+	log.Println("[MyCache] Get locally and populate!")
 
 	return cv, nil
 }

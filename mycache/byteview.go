@@ -1,5 +1,9 @@
 package mycache
 
+/*
+作为只读缓存值的抽象，同时实现读取长度、拷贝的方法
+*/
+
 // 封装一个字节数组用来表示缓存
 type ByteView struct {
 	bytes []byte

@@ -35,7 +35,7 @@ func (g *Group) Do(key string, fn func() (interface{}, error)) (interface{}, err
 	// 其他routine
 	if c, ok := g.m[key]; ok {
 		g.mu.Unlock()
-		c.wg.Wait()         // 请求进行中 等待直到所有的goroutine执行完
+		c.wg.Wait()         // 请求进行中
 		return c.val, c.err // 结束就返回
 	}
 

@@ -1,5 +1,7 @@
 package mycache
 
+// 提供被其他节点访问的能力(基于http)
+
 import (
 	"fmt"
 	"io"
@@ -23,10 +25,11 @@ type HTTPPool struct {
 	self        string // 自己的地址 IP+port
 	basePath    string
 	mu          sync.Mutex                     // 假设有多个client向你发送请求
-	peers       *consistenthash.ConsistentHash // 选择对应的节点
+	chash       *consistenthash.ConsistentHash // 选择对应的节点
 	httpGetters map[string]*httpGetter         // 远程节点和Get方法映射
 }
 
+// httpGetter实际上就是对应远程节点的http client
 type httpGetter struct {
 	baseURL string
 }
@@ -45,6 +48,7 @@ func (hp *HTTPPool) Log(format string, v ...any) {
 
 // 实现 http.Handler 接口
 func (hp *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 确保访问的是缓存对应的path
 	if !strings.HasPrefix(r.URL.Path, hp.basePath) {
 		panic("HTTPPool serving unexpected path: " + r.URL.Path)
 	}
@@ -60,7 +64,7 @@ func (hp *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 如果匹配
 	groupName := parts[0]
 	key := parts[1]
-
+	// 找到对应group的缓存
 	group := GetGroup(groupName)
 	// 找不到组
 	if group == nil {
@@ -90,14 +94,14 @@ func (hp *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
-// 实例化一致性hash 添加节点 为每个节点创建一个httpGetter（client方法）
+// 实例化一致性hash 添加节点 为每个节点创建一个httpGetter（client）
 func (hp *HTTPPool) SetPeers(peers ...string) {
 	hp.mu.Lock()
 	defer hp.mu.Unlock()
 
-	hp.peers = consistenthash.New(defaultReplicas, nil) // 采用默认的hash函数
-	hp.peers.Add(peers...)                              // 添加节点
-	hp.httpGetters = make(map[string]*httpGetter)
+	hp.chash = consistenthash.New(defaultReplicas, nil) // 采用默认的hash函数
+	hp.chash.Add(peers...)                              // 添加节点
+	hp.httpGetters = make(map[string]*httpGetter)       // 延迟初始化
 
 	for _, peer := range peers {
 		hp.httpGetters[peer] = &httpGetter{baseURL: peer + hp.basePath}
@@ -109,16 +113,23 @@ func (hp *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
 	hp.mu.Lock()
 	defer hp.mu.Unlock()
 
-	if peer := hp.peers.Get(key); peer != "" && peer != hp.self {
+	// 从哈希环中寻找节点
+	if peer := hp.chash.Get(key); peer != "" && peer != hp.self {
 		hp.Log("Pick Peer %s", peer)
+		// 返回对应节点的httpgetter 即 client
 		return hp.httpGetters[peer], true
 	}
 
 	return nil, false
 }
 
+// 这行代码是一个类型断言，它将*HTTPPool指针断言为PeerPicker接口类型。这通常用于接口的实现声明，
+// 这里它表明HTTPPool实现了PeerPicker接口。
+var _ PeerPicker = (*HTTPPool)(nil)
+
 // ----------------------http client---------------------------
 
+// 实现PeerGetter接口
 // func (hg *httpGetter) Get(group string, key string) ([]byte, error) {
 func (hg *httpGetter) Get(in *pb.Request, out *pb.Response) error {
 	info := fmt.Sprintf(
@@ -151,6 +162,8 @@ func (hg *httpGetter) Get(in *pb.Request, out *pb.Response) error {
 
 	return nil
 }
+
+var _ PeerGetter = (*httpGetter)(nil)
 
 // var _ PeerGetter = (*httpGetter)(nil)
 // var _ PeerPicker = (*HTTPPool)(nil)
